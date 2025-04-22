@@ -9,7 +9,7 @@ export async function GET() {
         await sql`SELECT 1`;
         
         // Test table existence
-        const tables = ['users', 'chats', 'messages'];
+        const tables = ['chats', 'messages'];
         for (const table of tables) {
             await sql`SELECT 1 FROM "${table}" LIMIT 1`;
         }

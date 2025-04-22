@@ -95,19 +95,37 @@ export function ChatSidebar() {
     const activeServersCount = selectedMcpServers.length;
 
     // Handle user ID update
-    const handleUpdateUserId = () => {
+    const handleUpdateUserId = async () => {
         if (!newUserId.trim()) {
             toast.error("User ID cannot be empty");
             return;
         }
 
-        updateUserId(newUserId.trim());
-        setUserId(newUserId.trim());
-        setEditUserIdOpen(false);
-        toast.success("User ID updated successfully");
-        
-        // Refresh the page to reload chats with new user ID
-        window.location.reload();
+        try {
+            // Check if database tables exist
+            const response = await fetch('/api/check-db', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ userId: newUserId.trim() })
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to check database');
+            }
+
+            updateUserId(newUserId.trim());
+            setUserId(newUserId.trim());
+            setEditUserIdOpen(false);
+            toast.success("User ID updated successfully");
+            
+            // Refresh the page to reload chats with new user ID
+            window.location.reload();
+        } catch (error) {
+            console.error('Error updating user ID:', error);
+            toast.error('Failed to update user ID');
+        }
     };
 
     // Show loading state if user ID is not yet initialized

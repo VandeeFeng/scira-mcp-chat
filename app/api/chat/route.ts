@@ -12,7 +12,7 @@ import { Experimental_StdioMCPTransport as StdioMCPTransport } from 'ai/mcp-stdi
 import { spawn } from "child_process";
 
 // Allow streaming responses up to 30 seconds
-export const maxDuration = 120;
+export const maxDuration = 60;
 
 interface KeyValuePair {
   key: string;

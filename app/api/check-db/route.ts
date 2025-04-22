@@ -18,12 +18,23 @@ export async function POST(request: Request) {
         } catch (error) {
             // If table doesn't exist, create it
             await sql`
+                CREATE TABLE IF NOT EXISTS "users" (
+                    "id" text PRIMARY KEY NOT NULL,
+                    "client_id" text NOT NULL,
+                    "created_at" timestamp DEFAULT now() NOT NULL,
+                    "updated_at" timestamp DEFAULT now() NOT NULL,
+                    CONSTRAINT "users_client_id_unique" UNIQUE("client_id")
+                );
+            `;
+
+            await sql`
                 CREATE TABLE IF NOT EXISTS "chats" (
                     "id" text PRIMARY KEY NOT NULL,
                     "user_id" text NOT NULL,
                     "title" text DEFAULT 'New Chat' NOT NULL,
                     "created_at" timestamp DEFAULT now() NOT NULL,
-                    "updated_at" timestamp DEFAULT now() NOT NULL
+                    "updated_at" timestamp DEFAULT now() NOT NULL,
+                    CONSTRAINT "chats_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action
                 );
             `;
 

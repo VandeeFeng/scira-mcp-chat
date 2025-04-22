@@ -6,10 +6,13 @@ import { nanoid } from 'nanoid';
 import { db } from '@/lib/db';
 import { chats } from '@/lib/db/schema';
 import { eq, and } from 'drizzle-orm';
+import { checkRateLimit } from '@/lib/rate-limit';
 
 import { experimental_createMCPClient as createMCPClient, MCPTransport } from 'ai';
 import { Experimental_StdioMCPTransport as StdioMCPTransport } from 'ai/mcp-stdio';
 import { spawn } from "child_process";
+
+const MAX_REQUESTS_PER_DAY = 10;
 
 // Allow streaming responses up to 30 seconds
 export const maxDuration = 60;
@@ -29,6 +32,27 @@ interface MCPServerConfig {
 }
 
 export async function POST(req: Request) {
+  const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 
+            req.headers.get('x-real-ip') || 
+            'unknown';
+  
+  const rateLimit = await checkRateLimit(ip);
+  if (!rateLimit.allowed) {
+    return new Response(
+      JSON.stringify({ 
+        error: `Rate limit exceeded. You have used all ${MAX_REQUESTS_PER_DAY} daily requests. Please try again after ${rateLimit.resetTime.toISOString()}.` 
+      }),
+      { 
+        status: 429,
+        headers: { 
+          "Content-Type": "application/json",
+          "X-RateLimit-Remaining": "0",
+          "X-RateLimit-Reset": rateLimit.resetTime.toISOString()
+        }
+      }
+    );
+  }
+
   const {
     messages,
     chatId,
@@ -231,5 +255,9 @@ export async function POST(req: Request) {
       console.error(error);
       return "An error occurred.";
     },
+    headers: {
+      "X-RateLimit-Remaining": rateLimit.remaining.toString(),
+      "X-RateLimit-Reset": rateLimit.resetTime.toISOString()
+    }
   });
 }

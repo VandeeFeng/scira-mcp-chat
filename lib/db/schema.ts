@@ -24,6 +24,13 @@ export const messages = pgTable('messages', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
+export const rateLimits = pgTable('rate_limits', {
+  id: text('id').primaryKey().notNull().$defaultFn(() => nanoid()),
+  ip: text('ip').notNull(),
+  count: text('count').notNull().default('0'),
+  lastReset: timestamp('last_reset').defaultNow().notNull(),
+});
+
 // Types for structured message content
 export type MessagePart = {
   type: string;

@@ -6,7 +6,7 @@ import { nanoid } from 'nanoid';
 import { db } from '@/lib/db';
 import { chats } from '@/lib/db/schema';
 import { eq, and } from 'drizzle-orm';
-import { checkRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit, getClientIP, RateLimitError } from '@/lib/rate-limit';
 
 import { experimental_createMCPClient as createMCPClient, MCPTransport } from 'ai';
 import { Experimental_StdioMCPTransport as StdioMCPTransport } from 'ai/mcp-stdio';
@@ -32,20 +32,88 @@ interface MCPServerConfig {
 }
 
 export async function POST(req: Request) {
-  const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 
-            req.headers.get('x-real-ip') || 
-            'unknown';
+  const ip = getClientIP(req);
+  if (!ip) {
+    return new Response(
+      JSON.stringify({ error: "Could not determine client IP address" }),
+      { status: 400, headers: { "Content-Type": "application/json" } }
+    );
+  }
   
-  const rateLimit = await checkRateLimit(ip);
-  if (!rateLimit.allowed) {
+  const rateLimit = await checkRateLimit(ip).catch((error) => {
+    console.error('Redis error:', error);
+    
+    // Check if it's a rate limit error
+    if (error instanceof RateLimitError) {
+      // If we have resetTime, use it
+      if (error.resetTime) {
+        const timeUntilReset = Math.ceil((error.resetTime.getTime() - Date.now()) / 1000 / 60 / 60);
+        const message = `You've reached the daily limit of ${MAX_REQUESTS_PER_DAY} requests. Please try again in ${timeUntilReset} hours.`;
+        return new Response(
+          message,
+          {
+            status: 429,
+            headers: { "Content-Type": "text/plain" }
+          }
+        );
+      }
+      // Otherwise, use a generic message
+      const genericMessage = `You've reached the daily limit of ${MAX_REQUESTS_PER_DAY} requests. Please try again later.`;
+      return new Response(
+        genericMessage,
+        {
+          status: 429,
+          headers: { "Content-Type": "text/plain" }
+        }
+      );
+    }
+    
+    // Check if it's a Redis connection error
+    if (error instanceof Error && (
+      error.message.includes('ECONNREFUSED') ||
+      error.message.includes('Connection refused') ||
+      error.message.includes('Redis connection error') ||
+      error.message.includes('Redis server') ||
+      error.message.includes('timeout')
+    )) {
+      return new Response(
+        JSON.stringify({ 
+          error: 'Service is temporarily unavailable. Please try again in a few moments.',
+          type: 'REDIS_ERROR'
+        }),
+        { 
+          status: 503,
+          headers: { "Content-Type": "application/json" }
+        }
+      );
+    }
+    
+    // For other Redis errors, return a more specific error message
     return new Response(
       JSON.stringify({ 
-        error: `Rate limit exceeded. You have used all ${MAX_REQUESTS_PER_DAY} daily requests. Please try again after ${rateLimit.resetTime.toISOString()}.` 
+        error: error instanceof Error ? error.message : 'An unexpected error occurred',
+        type: 'REDIS_ERROR'
       }),
       { 
+        status: 500,
+        headers: { "Content-Type": "application/json" }
+      }
+    );
+  });
+
+  if (rateLimit instanceof Response) {
+    return rateLimit;
+  }
+
+  if (!rateLimit.allowed) {
+    const timeUntilReset = Math.ceil((rateLimit.resetTime.getTime() - Date.now()) / 1000 / 60 / 60);
+    const message = `You've reached the daily limit of ${MAX_REQUESTS_PER_DAY} requests. Please try again in ${timeUntilReset} hours.`;
+    return new Response(
+      message,
+      {
         status: 429,
-        headers: { 
-          "Content-Type": "application/json",
+        headers: {
+          "Content-Type": "text/plain",
           "X-RateLimit-Remaining": "0",
           "X-RateLimit-Reset": rateLimit.resetTime.toISOString()
         }
@@ -219,7 +287,16 @@ export async function POST(req: Request) {
     messages,
     tools,
     maxSteps: 20,
-    onError: (error) => {
+    onError: (error: unknown) => {
+      // Don't log API key missing errors
+      if (error && typeof error === 'object' && 'message' in error && 
+          typeof error.message === 'string' && (
+        error.message.includes('API key') || 
+        error.message.includes('API_KEY') ||
+        error.message.includes('api key')
+      )) {
+        return;
+      }
       console.error(JSON.stringify(error, null, 2));
     },
     async onFinish({ response }) {
@@ -236,10 +313,6 @@ export async function POST(req: Request) {
 
       const dbMessages = convertToDBMessages(allMessages, id);
       await saveMessages({ messages: dbMessages });
-      // close all mcp clients
-      // for (const client of mcpClients) {
-      //   await client.close();
-      // }
     }
   });
 
@@ -250,6 +323,12 @@ export async function POST(req: Request) {
       if (error instanceof Error) {
         if (error.message.includes("Rate limit")) {
           return "Rate limit exceeded. Please try again later.";
+        }
+        // Don't show API key related errors to users
+        if (error.message.includes('API key') || 
+            error.message.includes('API_KEY') ||
+            error.message.includes('api key')) {
+          return "This model is currently unavailable. Please try another model.";
         }
       }
       console.error(error);

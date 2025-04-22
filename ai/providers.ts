@@ -26,7 +26,8 @@ const languageModels = {
       middleware
     }
   ),
-  "command-a": cohere('command-a-03-2025')
+  "command-a": cohere('command-a-03-2025'),
+  "grok-3-mini-beta": xai("grok-3-mini-beta")
 };
 
 export const modelDetails: Record<keyof typeof languageModels, ModelInfo> = {
@@ -43,6 +44,13 @@ export const modelDetails: Record<keyof typeof languageModels, ModelInfo> = {
     description: "Latest version of Google's Gemini 2 with strong reasoning and coding capabilities.",
     apiVersion: "gemini-2-flash",
     capabilities: ["Balance", "Efficient", "Agentic"]
+  },
+  "grok-3-mini-beta": {
+    provider: "XAI",
+    name: "Grok 3 Mini",
+    description: "Latest version of Grok 3 with strong reasoning and coding capabilities.",
+    apiVersion: "grok-3-mini-beta",
+    capabilities: ["Reasoning", "Efficient", "Agentic"]
   },
   "qwen-qwq": {
     provider: "Groq",
@@ -68,4 +76,4 @@ export type modelID = keyof typeof languageModels;
 
 export const MODELS = Object.keys(languageModels);
 
-export const defaultModel: modelID = "qwen-qwq";
+export const defaultModel: modelID = "gemini-2-flash";

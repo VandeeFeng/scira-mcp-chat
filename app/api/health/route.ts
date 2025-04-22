@@ -9,10 +9,8 @@ export async function GET() {
         await sql`SELECT 1`;
         
         // Test table existence
-        const tables = ['chats', 'messages'];
-        for (const table of tables) {
-            await sql`SELECT 1 FROM "${table}" LIMIT 1`;
-        }
+        await sql`SELECT 1 FROM chats LIMIT 1`;
+        await sql`SELECT 1 FROM messages LIMIT 1`;
         
         return NextResponse.json({ 
             status: 'healthy',

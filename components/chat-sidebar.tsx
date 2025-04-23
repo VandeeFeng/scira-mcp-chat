@@ -459,7 +459,7 @@ export function ChatSidebar() {
                         <DialogTitle>Set API Key</DialogTitle>
                         <DialogDescription>
                             Provide your own API key (e.g., OpenAI, Anthropic) to bypass daily limits.
-                            Your key is stored in your browser's storage and will be automatically cleared when you close the page.
+                            Your key is stored in your browser&apos;s storage and will be automatically cleared when you close the page.
                         </DialogDescription>
                     </DialogHeader>
                     <div className="grid gap-4 py-4">

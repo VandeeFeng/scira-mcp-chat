@@ -16,6 +16,7 @@ import { convertToUIMessages } from "@/lib/chat-store";
 import { type Message as DBMessage } from "@/lib/db/schema";
 import { nanoid } from "nanoid";
 import { useMCP } from "@/lib/context/mcp-context";
+import { useApiKey } from "@/lib/hooks/use-api-key";
 
 // Type for chat data from DB
 interface ChatData {
@@ -37,6 +38,7 @@ export default function Chat() {
   
   // Get MCP server data from context
   const { mcpServersForApi } = useMCP();
+  const { apiKey: userApiKey, customModelName: userModelName } = useApiKey();
   
   // Initialize userId
   useEffect(() => {
@@ -108,6 +110,8 @@ export default function Chat() {
         mcpServers: mcpServersForApi,
         chatId: chatId || generatedChatId, // Use generated ID if no chatId in URL
         userId,
+        userApiKey,
+        userModelName,
       },
       experimental_throttle: 500,
       onFinish: () => {

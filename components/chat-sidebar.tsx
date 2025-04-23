@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { MessageSquare, PlusCircle, Trash2, ServerIcon, Settings, Loader2, Sparkles, ChevronsUpDown, UserIcon, Copy, Pencil, Github } from "lucide-react";
+import { MessageSquare, PlusCircle, Trash2, ServerIcon, Settings, Loader2, Sparkles, ChevronsUpDown, UserIcon, Copy, Pencil, Github, KeyRound } from "lucide-react";
 import {
     Sidebar,
     SidebarContent,
@@ -51,97 +51,99 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useMCP } from "@/lib/context/mcp-context";
+import { useApiKey } from "../lib/hooks/use-api-key";
 
 export function ChatSidebar() {
     const router = useRouter();
     const pathname = usePathname();
-    const [userId, setUserId] = useState<string>('');
-    const [mcpSettingsOpen, setMcpSettingsOpen] = useState(false);
-    const { state } = useSidebar();
-    const isCollapsed = state === "collapsed";
-    const [editUserIdOpen, setEditUserIdOpen] = useState(false);
+    const { state, open, setOpen } = useSidebar();
+    const [userId, setUserId] = useState('');
     const [newUserId, setNewUserId] = useState('');
-
-    // Get MCP server data from context
+    const [editUserIdOpen, setEditUserIdOpen] = useState(false);
+    const [mcpSettingsOpen, setMcpSettingsOpen] = useState(false);
     const { mcpServers, setMcpServers, selectedMcpServers, setSelectedMcpServers } = useMCP();
+    const listRef = useRef<HTMLDivElement>(null);
+    const [activeChatId, setActiveChatId] = useState<string | null>(null);
+    const { apiKey, customModelName, setApiKey: saveApiKeyData, clearApiKey } = useApiKey();
+    const [isApiKeyDialogOpen, setApiKeyDialogOpen] = useState(false);
+    const [apiKeyInputValue, setApiKeyInputValue] = useState('');
+    const [modelNameInputValue, setModelNameInputValue] = useState('');
 
-    // Initialize userId
     useEffect(() => {
-        setUserId(getUserId());
+        const currentUserId = getUserId();
+        setUserId(currentUserId);
     }, []);
     
-    // Use TanStack Query to fetch chats
-    const { chats, isLoading, deleteChat, refreshChats } = useChats(userId);
+    const { isLoading, deleteChat, refreshChats, chats } = useChats(userId);
 
-    // Start a new chat
+    useEffect(() => {
+        const match = pathname.match(/^\/chat\/([^\/]+)/);
+        setActiveChatId(match ? match[1] : null);
+    }, [pathname]);
+
     const handleNewChat = () => {
         router.push('/');
     };
 
-    // Delete a chat
     const handleDeleteChat = async (chatId: string, e: React.MouseEvent) => {
         e.stopPropagation();
         e.preventDefault();
-
-        deleteChat(chatId);
-        
-        // If we're currently on the deleted chat's page, navigate to home
-        if (pathname === `/chat/${chatId}`) {
+        await deleteChat(chatId);
+        if (activeChatId === chatId) {
             router.push('/');
         }
     };
 
-    // Get active MCP servers status
     const activeServersCount = selectedMcpServers.length;
 
-    // Handle user ID update
     const handleUpdateUserId = async () => {
-        if (!newUserId.trim()) {
-            toast.error("User ID cannot be empty");
+        const trimmedUserId = newUserId.trim();
+        if (!trimmedUserId) {
+            toast.error("User ID cannot be empty.");
             return;
         }
-
-        try {
-            // Check if database tables exist
-            const response = await fetch('/api/check-db', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ userId: newUserId.trim() })
-            });
-
-            if (!response.ok) {
-                throw new Error('Failed to check database');
-            }
-
-            updateUserId(newUserId.trim());
-            setUserId(newUserId.trim());
-            setEditUserIdOpen(false);
-            toast.success("User ID updated successfully");
-            
-            // Refresh the page to reload chats with new user ID
-            window.location.reload();
-        } catch (error) {
-            console.error('Error updating user ID:', error);
-            toast.error('Failed to update user ID');
-        }
+        updateUserId(trimmedUserId);
+        setEditUserIdOpen(false);
+        toast.success("User ID updated. Reloading page...");
+        setTimeout(() => window.location.reload(), 1000);
     };
 
-    // Show loading state if user ID is not yet initialized
+    const handleSaveApiKey = () => {
+        saveApiKeyData({
+            key: apiKeyInputValue.trim(),
+            modelName: modelNameInputValue.trim() || null
+        });
+        setApiKeyDialogOpen(false);
+        toast.success("API Key saved successfully.");
+    };
+
+    const handleClearApiKey = () => {
+        clearApiKey();
+        setApiKeyInputValue('');
+        setModelNameInputValue('');
+        toast.success("API Key cleared successfully.");
+    };
+
+    useEffect(() => {
+        if (isApiKeyDialogOpen) {
+            setApiKeyInputValue(apiKey || '');
+            setModelNameInputValue(customModelName || '');
+        }
+    }, [isApiKeyDialogOpen, apiKey, customModelName]);
+
     if (!userId) {
-        return null; // Or a loading spinner
+        return null;
     }
 
     return (
         <Sidebar className="shadow-sm bg-background/80 dark:bg-background/40 backdrop-blur-md" collapsible="icon">
             <SidebarHeader className="p-4 border-b border-border/40">
                 <div className="flex items-center justify-start">
-                    <div className={`flex items-center gap-2 ${isCollapsed ? "justify-center w-full" : ""}`}>
-                        <div className={`relative rounded-full bg-primary/70 flex items-center justify-center ${isCollapsed ? "size-5 p-3" : "size-6"}`}>
+                    <div className={`flex items-center gap-2 ${state === "collapsed" ? "justify-center w-full" : ""}`}>
+                        <div className={`relative rounded-full bg-primary/70 flex items-center justify-center ${state === "collapsed" ? "size-5 p-3" : "size-6"}`}>
                             <Image src="/scira.png" alt="Scira Logo" width={24} height={24} className="absolute transform scale-75" unoptimized quality={100} />
                         </div>
-                        {!isCollapsed && (
+                        {state !== "collapsed" && (
                             <div className="font-semibold text-lg text-foreground/90">MCP</div>
                         )}
                     </div>
@@ -152,25 +154,25 @@ export function ChatSidebar() {
                 <SidebarGroup className="flex-1 min-h-0">
                     <SidebarGroupLabel className={cn(
                         "px-4 text-xs font-medium text-muted-foreground/80 uppercase tracking-wider",
-                        isCollapsed ? "sr-only" : ""
+                        state === "collapsed" ? "sr-only" : ""
                     )}>
                         Chats
                     </SidebarGroupLabel>
                     <SidebarGroupContent className={cn(
                         "overflow-y-auto pt-1",
-                        isCollapsed ? "overflow-x-hidden" : ""
+                        state === "collapsed" ? "overflow-x-hidden" : ""
                     )}>
                         <SidebarMenu>
                             {isLoading ? (
-                                <div className={`flex items-center justify-center py-4 ${isCollapsed ? "" : "px-4"}`}>
+                                <div className={`flex items-center justify-center py-4 ${state === "collapsed" ? "" : "px-4"}`}>
                                     <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                                    {!isCollapsed && (
+                                    {state !== "collapsed" && (
                                         <span className="ml-2 text-xs text-muted-foreground">Loading...</span>
                                     )}
                                 </div>
                             ) : chats.length === 0 ? (
-                                <div className={`flex items-center justify-center py-3 ${isCollapsed ? "" : "px-4"}`}>
-                                    {isCollapsed ? (
+                                <div className={`flex items-center justify-center py-3 ${state === "collapsed" ? "" : "px-4"}`}>
+                                    {state === "collapsed" ? (
                                         <div className="flex h-6 w-6 items-center justify-center rounded-md border border-border/50 bg-background/50">
                                             <MessageSquare className="h-3 w-3 text-muted-foreground" />
                                         </div>
@@ -186,7 +188,7 @@ export function ChatSidebar() {
                                     <SidebarMenuItem key={chat.id}>
                                         <SidebarMenuButton 
                                             asChild
-                                            tooltip={isCollapsed ? chat.title : undefined}
+                                            tooltip={state === "collapsed" ? chat.title : undefined}
                                             data-active={pathname === `/chat/${chat.id}`}
                                             className={cn(
                                                 "transition-all hover:bg-primary/10 active:bg-primary/15",
@@ -202,7 +204,7 @@ export function ChatSidebar() {
                                                         "h-4 w-4 flex-shrink-0",
                                                         pathname === `/chat/${chat.id}` ? "text-foreground" : "text-muted-foreground"
                                                     )} />
-                                                    {!isCollapsed && (
+                                                    {state !== "collapsed" && (
                                                         <span className={cn(
                                                             "ml-2 truncate text-sm",
                                                             pathname === `/chat/${chat.id}` ? "text-foreground font-medium" : "text-foreground/80"
@@ -211,7 +213,7 @@ export function ChatSidebar() {
                                                         </span>
                                                     )}
                                                 </div>
-                                                {!isCollapsed && (
+                                                {state !== "collapsed" && (
                                                     <Button
                                                         variant="ghost"
                                                         size="icon"
@@ -240,7 +242,7 @@ export function ChatSidebar() {
                 <SidebarGroup className="flex-shrink-0">
                     <SidebarGroupLabel className={cn(
                         "px-4 pt-0 text-xs font-medium text-muted-foreground/80 uppercase tracking-wider",
-                        isCollapsed ? "sr-only" : ""
+                        state === "collapsed" ? "sr-only" : ""
                     )}>
                         MCP Servers
                     </SidebarGroupLabel>
@@ -253,23 +255,23 @@ export function ChatSidebar() {
                                         "w-full flex items-center gap-2 transition-all",
                                         "hover:bg-secondary/50 active:bg-secondary/70"
                                     )}
-                                    tooltip={isCollapsed ? "MCP Servers" : undefined}
+                                    tooltip={state === "collapsed" ? "MCP Servers" : undefined}
                                 >
                                     <ServerIcon className={cn(
                                         "h-4 w-4 flex-shrink-0",
                                         activeServersCount > 0 ? "text-primary" : "text-muted-foreground"
                                     )} />
-                                    {!isCollapsed && (
+                                    {state !== "collapsed" && (
                                         <span className="flex-grow text-sm text-foreground/80">MCP Servers</span>
                                     )}
-                                    {activeServersCount > 0 && !isCollapsed ? (
+                                    {activeServersCount > 0 && state !== "collapsed" ? (
                                         <Badge 
                                             variant="secondary" 
                                             className="ml-auto text-[10px] px-1.5 py-0 h-5 bg-secondary/80"
                                         >
                                             {activeServersCount}
                                         </Badge>
-                                    ) : activeServersCount > 0 && isCollapsed ? (
+                                    ) : activeServersCount > 0 && state === "collapsed" ? (
                                         <SidebarMenuBadge className="bg-secondary/80 text-secondary-foreground">
                                             {activeServersCount}
                                         </SidebarMenuBadge>
@@ -282,23 +284,23 @@ export function ChatSidebar() {
             </SidebarContent>
             
             <SidebarFooter className="p-4 border-t border-border/40 mt-auto">
-                <div className={`flex flex-col ${isCollapsed ? "items-center" : ""} gap-3`}>
+                <div className={`flex flex-col ${state === "collapsed" ? "items-center" : ""} gap-3`}>
                     <Button
                         variant="default"
                         className={cn(
                             "w-full bg-primary text-primary-foreground hover:bg-primary/90",
-                            isCollapsed ? "w-8 h-8 p-0" : ""
+                            state === "collapsed" ? "w-8 h-8 p-0" : ""
                         )}
                         onClick={handleNewChat}
-                        title={isCollapsed ? "New Chat" : undefined}
+                        title={state === "collapsed" ? "New Chat" : undefined}
                     >
-                        <PlusCircle className={`${isCollapsed ? "" : "mr-2"} h-4 w-4`} />
-                        {!isCollapsed && <span>New Chat</span>}
+                        <PlusCircle className={`${state === "collapsed" ? "" : "mr-2"} h-4 w-4`} />
+                        {state !== "collapsed" && <span>New Chat</span>}
                     </Button>
                     
                     <DropdownMenu modal={false}>
                         <DropdownMenuTrigger asChild>
-                            {isCollapsed ? (
+                            {state === "collapsed" ? (
                                 <Button
                                     variant="ghost"
                                     className="w-8 h-8 p-0 flex items-center justify-center"
@@ -331,8 +333,8 @@ export function ChatSidebar() {
                         </DropdownMenuTrigger>
                         <DropdownMenuContent
                             className="w-56 rounded-lg"
-                            side={isCollapsed ? "top" : "top"}
-                            align={isCollapsed ? "start" : "end"}
+                            side={state === "collapsed" ? "top" : "top"}
+                            align={state === "collapsed" ? "start" : "end"}
                             sideOffset={8}
                         >
                             <DropdownMenuLabel className="p-0 font-normal">
@@ -374,6 +376,13 @@ export function ChatSidebar() {
                                 }}>
                                     <Settings className="mr-2 h-4 w-4 hover:text-sidebar-accent" />
                                     MCP Settings
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onSelect={(e) => {
+                                    e.preventDefault();
+                                    setApiKeyDialogOpen(true);
+                                }}>
+                                    <KeyRound className="mr-2 h-4 w-4 hover:text-sidebar-accent" />
+                                    Set API Key
                                 </DropdownMenuItem>
                                 <DropdownMenuItem onSelect={(e) => {
                                     e.preventDefault();
@@ -440,6 +449,79 @@ export function ChatSidebar() {
                         <Button onClick={handleUpdateUserId}>
                             Save Changes
                         </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            <Dialog open={isApiKeyDialogOpen} onOpenChange={setApiKeyDialogOpen}>
+                <DialogContent className="sm:max-w-[450px]">
+                    <DialogHeader>
+                        <DialogTitle>Set API Key</DialogTitle>
+                        <DialogDescription>
+                            Provide your own API key (e.g., OpenAI, Anthropic) to bypass daily limits.
+                            Your key is stored in your browser's storage and will be automatically cleared when you close the page.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="grid gap-4 py-4">
+                        <div className="grid gap-2">
+                            <Label htmlFor="apiKeyInput">API Key</Label>
+                            <Input
+                                id="apiKeyInput"
+                                type="password"
+                                value={apiKeyInputValue}
+                                onChange={(e) => setApiKeyInputValue(e.target.value)}
+                                placeholder="Enter your API key (e.g., sk-...)"
+                            />
+                            
+                            <Label htmlFor="modelNameInput" className="mt-4">Custom Model Name (Optional)</Label>
+                            <Input
+                                id="modelNameInput"
+                                type="text"
+                                value={modelNameInputValue}
+                                onChange={(e) => setModelNameInputValue(e.target.value)}
+                                placeholder="e.g., gpt-4.5-turbo"
+                            />
+                            <p className="text-xs text-muted-foreground mt-1">
+                                If specified, this model will be used instead of the default model for the provider.
+                            </p>
+                            
+                            <div className="space-y-2 mt-2">
+                                <p className="text-xs text-muted-foreground">
+                                    This key will be used when the default key reaches its limit.
+                                </p>
+                                <div className="p-3 bg-yellow-50 dark:bg-yellow-950/30 border border-yellow-200 dark:border-yellow-900/50 rounded-md">
+                                    <p className="text-xs font-medium text-amber-800 dark:text-amber-500">Security Warning:</p>
+                                    <ul className="text-xs text-amber-700 dark:text-amber-400 list-disc list-inside mt-1 space-y-1">
+                                        <li>Your API key is stored in browser storage</li>
+                                        <li>Always clear your key after use</li>
+                                        <li>Never enter your key on shared or public devices</li>
+                                        <li>The key will automatically clear when you close this page</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <DialogFooter className="flex justify-between">
+                        <div className="flex gap-2">
+                            <Button
+                                variant="destructive"
+                                onClick={handleClearApiKey}
+                                disabled={!apiKey}
+                            >
+                                Clear API Key
+                            </Button>
+                        </div>
+                        <div className="flex gap-2">
+                            <Button
+                                variant="outline"
+                                onClick={() => setApiKeyDialogOpen(false)}
+                            >
+                                Cancel
+                            </Button>
+                            <Button onClick={handleSaveApiKey}>
+                                Save API Key
+                            </Button>
+                        </div>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>

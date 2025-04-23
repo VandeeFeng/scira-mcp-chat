@@ -40,99 +40,22 @@ export async function POST(req: Request) {
     );
   }
   
-  const rateLimit = await checkRateLimit(ip).catch((error) => {
-    console.error('Redis error:', error);
-    
-    // Check if it's a rate limit error
-    if (error instanceof RateLimitError) {
-      // If we have resetTime, use it
-      if (error.resetTime) {
-        const timeUntilReset = Math.ceil((error.resetTime.getTime() - Date.now()) / 1000 / 60 / 60);
-        const message = `You've reached the daily limit of ${MAX_REQUESTS_PER_DAY} requests. Please try again in ${timeUntilReset} hours.`;
-        return new Response(
-          message,
-          {
-            status: 429,
-            headers: { "Content-Type": "text/plain" }
-          }
-        );
-      }
-      // Otherwise, use a generic message
-      const genericMessage = `You've reached the daily limit of ${MAX_REQUESTS_PER_DAY} requests. Please try again later.`;
-      return new Response(
-        genericMessage,
-        {
-          status: 429,
-          headers: { "Content-Type": "text/plain" }
-        }
-      );
-    }
-    
-    // Check if it's a Redis connection error
-    if (error instanceof Error && (
-      error.message.includes('ECONNREFUSED') ||
-      error.message.includes('Connection refused') ||
-      error.message.includes('Redis connection error') ||
-      error.message.includes('Redis server') ||
-      error.message.includes('timeout')
-    )) {
-      return new Response(
-        JSON.stringify({ 
-          error: 'Service is temporarily unavailable. Please try again in a few moments.',
-          type: 'REDIS_ERROR'
-        }),
-        { 
-          status: 503,
-          headers: { "Content-Type": "application/json" }
-        }
-      );
-    }
-    
-    // For other Redis errors, return a more specific error message
-    return new Response(
-      JSON.stringify({ 
-        error: error instanceof Error ? error.message : 'An unexpected error occurred',
-        type: 'REDIS_ERROR'
-      }),
-      { 
-        status: 500,
-        headers: { "Content-Type": "application/json" }
-      }
-    );
-  });
-
-  if (rateLimit instanceof Response) {
-    return rateLimit;
-  }
-
-  if (!rateLimit.allowed) {
-    const timeUntilReset = Math.ceil((rateLimit.resetTime.getTime() - Date.now()) / 1000 / 60 / 60);
-    const message = `You've reached the daily limit of ${MAX_REQUESTS_PER_DAY} requests. Please try again in ${timeUntilReset} hours.`;
-    return new Response(
-      message,
-      {
-        status: 429,
-        headers: {
-          "Content-Type": "text/plain",
-          "X-RateLimit-Remaining": "0",
-          "X-RateLimit-Reset": rateLimit.resetTime.toISOString()
-        }
-      }
-    );
-  }
-
   const {
     messages,
     chatId,
     selectedModel,
     userId,
     mcpServers = [],
+    userApiKey = null,
+    userModelName = null,
   }: {
     messages: UIMessage[];
     chatId?: string;
     selectedModel: modelID;
     userId: string;
     mcpServers?: MCPServerConfig[];
+    userApiKey?: string | null;
+    userModelName?: string | null;
   } = await req.json();
 
   if (!userId) {
@@ -263,9 +186,108 @@ export async function POST(req: Request) {
   console.log("messages", messages);
   console.log("parts", messages.map(m => m.parts.map(p => p)));
 
+  // Skip rate limit check if user provides their own API key
+  let rateLimit;
+  if (!userApiKey) {
+    // Only check rate limit if user is not providing their own API key
+    rateLimit = await checkRateLimit(ip).catch((error) => {
+      console.error('Redis error:', error);
+      
+      // Check if it's a rate limit error
+      if (error instanceof RateLimitError) {
+        // If we have resetTime, use it
+        if (error.resetTime) {
+          const timeUntilReset = Math.ceil((error.resetTime.getTime() - Date.now()) / 1000 / 60 / 60);
+          const message = `You've reached the daily limit of ${MAX_REQUESTS_PER_DAY} requests. Please try again in ${timeUntilReset} hours.`;
+          return new Response(
+            message,
+            {
+              status: 429,
+              headers: { "Content-Type": "text/plain" }
+            }
+          );
+        }
+        // Otherwise, use a generic message
+        const genericMessage = `You've reached the daily limit of ${MAX_REQUESTS_PER_DAY} requests. Please try again later.`;
+        return new Response(
+          genericMessage,
+          {
+            status: 429,
+            headers: { "Content-Type": "text/plain" }
+          }
+        );
+      }
+      
+      // Check if it's a Redis connection error
+      if (error instanceof Error && (
+        error.message.includes('ECONNREFUSED') ||
+        error.message.includes('Connection refused') ||
+        error.message.includes('Redis connection error') ||
+        error.message.includes('Redis server') ||
+        error.message.includes('timeout')
+      )) {
+        return new Response(
+          JSON.stringify({ 
+            error: 'Service is temporarily unavailable. Please try again in a few moments.',
+            type: 'REDIS_ERROR'
+          }),
+          { 
+            status: 503,
+            headers: { "Content-Type": "application/json" }
+          }
+        );
+      }
+      
+      // For other Redis errors, return a more specific error message
+      return new Response(
+        JSON.stringify({ 
+          error: error instanceof Error ? error.message : 'An unexpected error occurred',
+          type: 'REDIS_ERROR'
+        }),
+        { 
+          status: 500,
+          headers: { "Content-Type": "application/json" }
+        }
+      );
+    });
+
+    if (rateLimit instanceof Response) {
+      return rateLimit;
+    }
+
+    if (!rateLimit.allowed) {
+      const timeUntilReset = Math.ceil((rateLimit.resetTime.getTime() - Date.now()) / 1000 / 60 / 60);
+      const message = `You've reached the daily limit of ${MAX_REQUESTS_PER_DAY} requests. Please try again in ${timeUntilReset} hours.`;
+      return new Response(
+        message,
+        {
+          status: 429,
+          headers: {
+            "Content-Type": "text/plain",
+            "X-RateLimit-Remaining": "0",
+            "X-RateLimit-Reset": rateLimit.resetTime.toISOString()
+          }
+        }
+      );
+    }
+  } else {
+    // User is providing their own API key, no rate limiting
+    // But still set dummy rateLimit for the headers
+    rateLimit = {
+      allowed: true,
+      remaining: MAX_REQUESTS_PER_DAY,
+      resetTime: new Date(Date.now() + 24 * 60 * 60 * 1000) // 24 hours from now
+    };
+  }
+
   // If there was an error setting up MCP clients but we at least have composio tools, continue
   const result = streamText({
-    model: model.languageModel(selectedModel),
+    model: userApiKey 
+      ? model.configureLanguageModel(selectedModel, { 
+          apiKey: userApiKey,
+          ...(userModelName ? { modelName: userModelName } : {})
+        })
+      : model.languageModel(selectedModel),
     system: `You are a helpful assistant with access to a variety of tools.
 
     The tools are very powerful, and you can use them to answer the user's question.

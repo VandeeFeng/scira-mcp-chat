@@ -1,9 +1,10 @@
-import { xai } from "@ai-sdk/xai";
-import { openai } from "@ai-sdk/openai";
-import { google } from "@ai-sdk/google";
-import { groq } from "@ai-sdk/groq";
+import { xai, createXai } from "@ai-sdk/xai";
+import { openai, createOpenAI } from "@ai-sdk/openai";
+import { google, createGoogleGenerativeAI } from "@ai-sdk/google";
+import { groq, createGroq } from "@ai-sdk/groq";
 import { customProvider, wrapLanguageModel, extractReasoningMiddleware } from "ai";
-import { cohere } from "@ai-sdk/cohere";
+import { cohere, createCohere } from "@ai-sdk/cohere";
+
 export interface ModelInfo {
   provider: string;
   name: string;
@@ -17,17 +18,69 @@ const middleware = extractReasoningMiddleware({
   separator: '\n',
 });
 
-const languageModels = {
-  "gpt-4.1-mini": openai("gpt-4.1-mini"),
-  "gemini-2-flash": google("gemini-2.0-flash-001"),
-  "qwen-qwq": wrapLanguageModel(
-    {
-      model: groq("qwen-qwq-32b"), 
-      middleware
+export interface ModelOptions {
+  apiKey?: string;
+  modelName?: string;
+}
+
+// Basic language model instances
+const baseLMs = {
+  "gpt-4.1-mini": (options?: ModelOptions) => {
+    const modelName = options?.modelName || "gpt-4.1-mini";
+    if (options?.apiKey) {
+      const customOpenAI = createOpenAI({ apiKey: options.apiKey });
+      return customOpenAI(modelName);
     }
-  ),
-  "command-a": cohere('command-a-03-2025'),
-  "grok-3-mini-beta": xai("grok-3-mini-beta")
+    return openai(modelName);
+  },
+  "gemini-2-flash": (options?: ModelOptions) => {
+    const modelName = options?.modelName || "gemini-2.0-flash-001";
+    if (options?.apiKey) {
+      const customGoogle = createGoogleGenerativeAI({ apiKey: options.apiKey });
+      return customGoogle(modelName);
+    }
+    return google(modelName);
+  },
+  "qwen-qwq": (options?: ModelOptions) => {
+    const modelName = options?.modelName || "qwen-qwq-32b";
+    let model;
+    if (options?.apiKey) {
+      const customGroq = createGroq({ apiKey: options.apiKey });
+      model = customGroq(modelName);
+    } else {
+      model = groq(modelName);
+    }
+    
+    return wrapLanguageModel({
+      model,
+      middleware
+    });
+  },
+  "command-a": (options?: ModelOptions) => {
+    const modelName = options?.modelName || "command-a-03-2025";
+    if (options?.apiKey) {
+      const customCohere = createCohere({ apiKey: options.apiKey });
+      return customCohere(modelName);
+    }
+    return cohere(modelName);
+  },
+  "grok-3-mini-beta": (options?: ModelOptions) => {
+    const modelName = options?.modelName || "grok-3-mini-beta";
+    if (options?.apiKey) {
+      const customXai = createXai({ apiKey: options.apiKey });
+      return customXai(modelName);
+    }
+    return xai(modelName);
+  }
+};
+
+// Pre-configured language models with default settings
+const languageModels = {
+  "gpt-4.1-mini": baseLMs["gpt-4.1-mini"](),
+  "gemini-2-flash": baseLMs["gemini-2-flash"](),
+  "qwen-qwq": baseLMs["qwen-qwq"](),
+  "command-a": baseLMs["command-a"](),
+  "grok-3-mini-beta": baseLMs["grok-3-mini-beta"]()
 };
 
 export const modelDetails: Record<keyof typeof languageModels, ModelInfo> = {
@@ -68,9 +121,18 @@ export const modelDetails: Record<keyof typeof languageModels, ModelInfo> = {
   }
 };
 
-export const model = customProvider({
-  languageModels,
-});
+export const model = {
+  // Standard language model with default configurations
+  languageModel: (modelId: keyof typeof languageModels) => languageModels[modelId],
+  
+  // Configure language model with custom options
+  configureLanguageModel: (modelId: keyof typeof languageModels, options: ModelOptions) => {
+    if (modelId in baseLMs) {
+      return baseLMs[modelId](options);
+    }
+    return languageModels[modelId]; // Fallback to default if model not found
+  }
+};
 
 export type modelID = keyof typeof languageModels;
 
